@@ -1,0 +1,22 @@
+# Compiled Java class files
+*.class
+
+# Log files
+*.log
+
+# Execution folders
+/out/
+/target/
+/build/
+
+# IntelliJ specific files
+.idea/
+*.iml
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Database & Environment secrets (Crucial for JDBC)
+.env
+*.properties
