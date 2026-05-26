@@ -85,12 +85,29 @@ public class WelcomePanel extends JPanel {
         howLbl.setHorizontalAlignment(SwingConstants.CENTER);
         howLbl.setBorder(new EmptyBorder(6, 30, 6, 30));
 
+        JButton btnReset = actionButton("  Reset Stats  ", UIConstants.WARNING, Color.WHITE);
+        applyIcon(btnReset, "trash.svg");
+        btnReset.addActionListener(e -> {
+            int choice = JOptionPane.showConfirmDialog(
+                WelcomePanel.this,
+                "This will permanently erase all stats, scores, and power-ups.\nAre you sure?",
+                "Reset Stats",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE
+            );
+            if (choice == JOptionPane.YES_OPTION) {
+                stats.reset();
+                frame.showWelcome();   // rebuild the panel so the stats bar refreshes
+            }
+        });
+
         JButton btnExit = actionButton("  Exit  ", UIConstants.DANGER, Color.WHITE);
         applyIcon(btnExit, "exit.svg");
         btnExit.addActionListener(e -> System.exit(0));
 
         JPanel exitRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 20, 6));
         exitRow.setBackground(UIConstants.BACKGROUND);
+        exitRow.add(btnReset);
         exitRow.add(btnExit);
 
         JPanel south = new JPanel(new BorderLayout());

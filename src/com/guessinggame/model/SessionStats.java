@@ -63,6 +63,20 @@ public class SessionStats {
         saveToFile();
     }
 
+    /**
+     * Wipes all statistics and power-up inventory back to zero and
+     * immediately persists the empty state to disk.
+     */
+    public void reset() {
+        gamesPlayed  = 0;
+        gamesWon     = 0;
+        bestGuesses  = Integer.MAX_VALUE;
+        highScore    = 0;
+        bestScoreByLevel.clear();
+        powerUpInventory.clear();
+        saveToFile();
+    }
+
     // ── Power-up inventory ────────────────────────────────────────────────
 
     /**
