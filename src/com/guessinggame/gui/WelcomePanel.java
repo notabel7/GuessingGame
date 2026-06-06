@@ -47,17 +47,18 @@ public class WelcomePanel extends JPanel {
         titleBar.add(titleStack, BorderLayout.CENTER);
 
         // ── Session stats bar ─────────────────────────────────────────
-        JPanel statsBar = new JPanel(new FlowLayout(FlowLayout.CENTER, 28, 8));
+        // Lives + streak lead the bar — they're the active stakes.
+        JPanel statsBar = new JPanel(new FlowLayout(FlowLayout.CENTER, 18, 8));
         statsBar.setBackground(UIConstants.PRIMARY_DARK);
-        statsBar.add(statWidget("Played",     String.valueOf(stats.getGamesPlayed())));
+        statsBar.add(statWidget("Lives",       stats.getLives() + " / " + stats.getMaxLives()));
         statsBar.add(statSep());
-        statsBar.add(statWidget("Won",        String.valueOf(stats.getGamesWon())));
+        statsBar.add(statWidget("Win Streak",  String.valueOf(stats.getWinStreak())));
         statsBar.add(statSep());
-        statsBar.add(statWidget("Lost",       String.valueOf(stats.getGamesLost())));
+        statsBar.add(statWidget("Best Streak", String.valueOf(stats.getBestStreak())));
         statsBar.add(statSep());
-        statsBar.add(statWidget("Best",       stats.getBestGuesses()));
+        statsBar.add(statWidget("Won",         String.valueOf(stats.getGamesWon())));
         statsBar.add(statSep());
-        statsBar.add(statWidget("High Score", stats.getHighScoreDisplay()));
+        statsBar.add(statWidget("High Score",  stats.getHighScoreDisplay()));
 
         JPanel north = new JPanel(new BorderLayout());
         north.add(titleBar, BorderLayout.NORTH);
@@ -75,10 +76,13 @@ public class WelcomePanel extends JPanel {
         // ── How to play + Exit ────────────────────────────────────────
         JLabel howLbl = new JLabel(
             "<html><center>Pick a level — each one strips away a layer of help." +
-            " Beginner gives warm/cold hints and a visual range bar." +
-            " Expert gives you nothing but <i>Higher</i> or <i>Lower</i>." +
-            " Win games to earn <b>Power-Ups</b> (Cut, Shield, Peek, Freeze)" +
-            " you can use in your next game.</center></html>"
+            " Beginner gives warm/cold hints and a visual range bar;" +
+            " Expert gives you nothing but <i>Higher</i> or <i>Lower</i>.<br>" +
+            " <b>Stakes:</b> you have <b>" + stats.getMaxLives() + " lives</b> — every loss costs one." +
+            " Win games in a row to build a <b>streak</b> that multiplies your score" +
+            " (and earns a life back every " + com.guessinggame.model.SessionStats.STREAK_LIFE_EVERY +
+            " wins). Run out of lives and the run resets." +
+            " Wins also grant <b>Power-Ups</b> (Cut, Shield, Peek, Freeze).</center></html>"
         );
         howLbl.setFont(UIConstants.FONT_SMALL);
         howLbl.setForeground(new Color(90, 50, 120));

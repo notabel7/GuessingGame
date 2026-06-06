@@ -27,10 +27,26 @@ public class SessionStats {
     private static final String STATS_FILE =
         System.getProperty("user.home") + java.io.File.separator + "game_stats.properties";
 
+    // ── Stakes: lives + win-streak multiplier ─────────────────────────────
+    /** Lives a fresh run starts with. */
+    public static final int    START_LIVES         = 5;
+    /** Maximum lives that can be banked. */
+    public static final int    MAX_LIVES           = 5;
+    /** Every Nth consecutive win grants +1 life (up to MAX_LIVES). */
+    public static final int    STREAK_LIFE_EVERY   = 3;
+    /** Score multiplier grows by this much per win in the current streak. */
+    private static final double MULT_STEP          = 0.5;
+    /** Multiplier is capped here so it can't run away. */
+    private static final double MULT_CAP           = 5.0;
+
     private int gamesPlayed = 0;
     private int gamesWon    = 0;
     private int bestGuesses = Integer.MAX_VALUE;
     private int highScore   = 0;
+
+    private int lives       = START_LIVES;  // current run's remaining lives
+    private int winStreak   = 0;            // consecutive wins (resets on any loss)
+    private int bestStreak  = 0;            // longest streak ever reached (persistent trophy)
 
     /** Best score achieved per level (absent key = no wins yet on that level). */
     private final Map<Level, Integer> bestScoreByLevel = new EnumMap<>(Level.class);
@@ -50,6 +66,10 @@ public class SessionStats {
     public PowerUp recordWin(int guessCount, int score, Level level) {
         gamesPlayed++;
         gamesWon++;
+        winStreak++;
+        if (winStreak > bestStreak) bestStreak = winStreak;
+        // Every Nth win in a streak earns a life back (capped at MAX_LIVES)
+        if (winStreak % STREAK_LIFE_EVERY == 0 && lives < MAX_LIVES) lives++;
         if (guessCount < bestGuesses) bestGuesses = guessCount;
         if (score > highScore)        highScore   = score;
         bestScoreByLevel.merge(level, score, Math::max);
@@ -60,20 +80,56 @@ public class SessionStats {
 
     public void recordLoss() {
         gamesPlayed++;
+        winStreak = 0;            // a loss breaks the streak
+        if (lives > 0) lives--;   // and costs a life
         saveToFile();
     }
 
     /**
-     * Wipes all statistics and power-up inventory back to zero and
-     * immediately persists the empty state to disk.
+     * Wipes all statistics, streak, lives, and power-up inventory back to the
+     * starting state and immediately persists it to disk.
      */
     public void reset() {
         gamesPlayed  = 0;
         gamesWon     = 0;
         bestGuesses  = Integer.MAX_VALUE;
         highScore    = 0;
+        lives        = START_LIVES;
+        winStreak    = 0;
+        bestStreak   = 0;
         bestScoreByLevel.clear();
         powerUpInventory.clear();
+        saveToFile();
+    }
+
+    // ── Lives + streak ────────────────────────────────────────────────────
+
+    /** Current remaining lives in this run. */
+    public int getLives()      { return lives;      }
+    public int getMaxLives()   { return MAX_LIVES;  }
+    /** Consecutive wins so far (the active streak). */
+    public int getWinStreak()  { return winStreak;  }
+    /** Longest streak ever reached. */
+    public int getBestStreak() { return bestStreak; }
+
+    /** True once lives hit zero — the current run is over. */
+    public boolean isOutOfLives() { return lives <= 0; }
+
+    /**
+     * Score multiplier currently in effect, based on the active streak.
+     * Streak 0 → x1.0, streak 1 → x1.5, streak 2 → x2.0 … capped at MULT_CAP.
+     */
+    public double getStreakMultiplier() {
+        return Math.min(MULT_CAP, 1.0 + MULT_STEP * winStreak);
+    }
+
+    /**
+     * Starts a fresh run after a game-over: lives back to START_LIVES and the
+     * streak cleared. Best-streak and lifetime stats are preserved.
+     */
+    public void startNewRun() {
+        lives     = START_LIVES;
+        winStreak = 0;
         saveToFile();
     }
 
@@ -184,6 +240,9 @@ public class SessionStats {
             props.setProperty("gamesWon",    String.valueOf(gamesWon));
             props.setProperty("bestGuesses", String.valueOf(bestGuesses));
             props.setProperty("highScore",   String.valueOf(highScore));
+            props.setProperty("lives",       String.valueOf(lives));
+            props.setProperty("winStreak",   String.valueOf(winStreak));
+            props.setProperty("bestStreak",  String.valueOf(bestStreak));
             for (Level lv : Level.values()) {
                 props.setProperty("best." + lv.name(),
                     String.valueOf(bestScoreByLevel.getOrDefault(lv, 0)));
@@ -214,6 +273,13 @@ public class SessionStats {
             s.bestGuesses = Integer.parseInt(props.getProperty("bestGuesses",
                 String.valueOf(Integer.MAX_VALUE)));
             s.highScore   = Integer.parseInt(props.getProperty("highScore", "0"));
+            s.lives       = Integer.parseInt(props.getProperty("lives",
+                String.valueOf(START_LIVES)));
+            s.winStreak   = Integer.parseInt(props.getProperty("winStreak",  "0"));
+            s.bestStreak  = Integer.parseInt(props.getProperty("bestStreak", "0"));
+            // Guard against a corrupt/edited file leaving an unplayable run
+            if (s.lives < 0)          s.lives = 0;
+            if (s.lives > MAX_LIVES)  s.lives = MAX_LIVES;
             for (Level lv : Level.values()) {
                 int score = Integer.parseInt(props.getProperty("best." + lv.name(), "0"));
                 if (score > 0) s.bestScoreByLevel.put(lv, score);

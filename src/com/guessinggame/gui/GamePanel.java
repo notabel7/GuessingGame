@@ -46,6 +46,10 @@ public class GamePanel extends JPanel {
     /** Visual bar showing how much time remains for the current guess. */
     private CountdownBar countdownBar;
 
+    // ── Stakes UI (lives + streak) ────────────────────────────────────────
+    private LivesBar livesBar;
+    private final JLabel lblStreak = new JLabel();
+
     // ── Power-up UI ───────────────────────────────────────────────────────
     private JButton btnCut, btnShield, btnPeek, btnFreeze;
     /** Sub-panel holding the four power-up buttons (swapped in/out with lblNoPowerUps). */
@@ -151,6 +155,31 @@ public class GamePanel extends JPanel {
         header.add(leftHeader,   BorderLayout.WEST);
         header.add(centerHeader, BorderLayout.CENTER);
         header.add(rightHeader,  BorderLayout.EAST);
+
+        // ── Stakes bar (lives + active streak multiplier) ─────────────
+        JPanel stakesBar = new JPanel(new BorderLayout());
+        stakesBar.setBackground(UIConstants.PRIMARY_DARK);
+        stakesBar.setBorder(new EmptyBorder(6, 18, 6, 18));
+
+        JPanel livesWrap = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        livesWrap.setOpaque(false);
+        JLabel livesLbl = new JLabel("Lives");
+        livesLbl.setFont(UIConstants.FONT_SMALL);
+        livesLbl.setForeground(new Color(210, 190, 235));
+        livesBar = new LivesBar();
+        livesWrap.add(livesLbl);
+        livesWrap.add(livesBar);
+
+        lblStreak.setFont(UIConstants.FONT_BOLD);
+        lblStreak.setHorizontalAlignment(SwingConstants.RIGHT);
+
+        stakesBar.add(livesWrap,  BorderLayout.WEST);
+        stakesBar.add(lblStreak,  BorderLayout.EAST);
+        updateStakesBar();
+
+        JPanel northStack = new JPanel(new BorderLayout());
+        northStack.add(header,    BorderLayout.NORTH);
+        northStack.add(stakesBar, BorderLayout.SOUTH);
 
         // ── Warning banner (hidden until needed) ──────────────────────
         warningPanel.setVisible(false);
@@ -262,7 +291,7 @@ public class GamePanel extends JPanel {
             if (session.isActive()) {
                 if (!confirmAbandon()) return;
                 stopAllTimers();
-                stats.recordLoss();
+                recordAbandon();
             } else {
                 stopAllTimers();
             }
@@ -273,7 +302,7 @@ public class GamePanel extends JPanel {
             if (session.isActive()) {
                 if (!confirmAbandon()) return;
                 stopAllTimers();
-                stats.recordLoss();
+                recordAbandon();
             } else {
                 stopAllTimers();
             }
@@ -316,9 +345,24 @@ public class GamePanel extends JPanel {
         centerPanel.add(Box.createVerticalStrut(10));
         centerPanel.add(historyScroll);
 
-        add(header,      BorderLayout.NORTH);
+        add(northStack,  BorderLayout.NORTH);
         add(centerPanel, BorderLayout.CENTER);
         add(navPanel,    BorderLayout.SOUTH);
+    }
+
+    /** Refreshes the lives hearts and the streak/multiplier label. */
+    private void updateStakesBar() {
+        if (livesBar != null) livesBar.repaint();
+        int    streak = stats.getWinStreak();
+        double mult   = stats.getStreakMultiplier();
+        if (streak == 0) {
+            lblStreak.setText("No streak  —  win to start one  (x1.0)");
+            lblStreak.setForeground(new Color(190, 175, 215));
+        } else {
+            lblStreak.setText("Win Streak  " + streak +
+                "   •   Score x" + String.format("%.1f", mult));
+            lblStreak.setForeground(UIConstants.SECONDARY);
+        }
     }
 
     // ── Power-up panel construction ───────────────────────────────────────
@@ -454,16 +498,48 @@ public class GamePanel extends JPanel {
 
         if (lastResult == GuessResult.CORRECT) {
             stopAllTimers();
-            PowerUp awarded = stats.recordWin(
-                session.getGuessCount(), session.calculateScore(), session.getLevel());
-            SoundPlayer.play("nice.wav");
-            showWinDialog(awarded);
+            handleWin();
         } else if (!session.isActive()) {
             stopAllTimers();
-            stats.recordLoss();
-            SoundPlayer.play("fail.wav");
-            showLossDialog();
+            handleLoss();
         }
+    }
+
+    /**
+     * Win handling: applies the active streak multiplier to the base score,
+     * records the win (which advances the streak and may grant a life), then
+     * shows the win dialog with the full breakdown.
+     */
+    private void handleWin() {
+        double  mult        = stats.getStreakMultiplier();   // based on streak BEFORE this win
+        int     base        = session.calculateScore();
+        int     finalScore  = (int) Math.round(base * mult);
+        int     livesBefore = stats.getLives();
+
+        PowerUp awarded   = stats.recordWin(session.getGuessCount(), finalScore, session.getLevel());
+        boolean gainedLife = stats.getLives() > livesBefore;
+
+        SoundPlayer.play("nice.wav");
+        updateStakesBar();
+        showWinDialog(awarded, base, mult, finalScore, gainedLife);
+    }
+
+    /**
+     * Loss handling: records the loss (breaks the streak, costs a life). If that
+     * was the last life, shows the "run over" dialog and starts a fresh run;
+     * otherwise shows the normal loss dialog with lives remaining.
+     */
+    private void handleLoss() {
+        int lostStreak = stats.getWinStreak();   // capture before recordLoss clears it
+        stats.recordLoss();
+        SoundPlayer.play("fail.wav");
+        boolean runOver = stats.isOutOfLives();
+        // Restore the run BEFORE the dialog — its buttons may launch a new game,
+        // which builds a fresh GamePanel that must read the refilled lives.
+        if (runOver) stats.startNewRun();
+        updateStakesBar();
+        if (runOver) showRunOverDialog(lostStreak);
+        else         showLossDialog(lostStreak);
     }
 
     // ── Confirmation dialog (#17) ─────────────────────────────────────────
@@ -475,12 +551,18 @@ public class GamePanel extends JPanel {
     private boolean confirmAbandon() {
         int choice = JOptionPane.showConfirmDialog(
             this,
-            "Abandon this game? It will be recorded as a loss.",
+            "Abandon this game? It counts as a loss — you'll lose a life and your win streak.",
             "Abandon Game",
             JOptionPane.YES_NO_OPTION,
             JOptionPane.WARNING_MESSAGE
         );
         return choice == JOptionPane.YES_OPTION;
+    }
+
+    /** Records an abandoned game as a loss, and resets the run if it was the last life. */
+    private void recordAbandon() {
+        stats.recordLoss();
+        if (stats.isOutOfLives()) stats.startNewRun();
     }
 
     // ── Countdown & timers ────────────────────────────────────────────────
@@ -525,9 +607,7 @@ public class GamePanel extends JPanel {
 
         if (result == GuessResult.GAME_OVER || !session.isActive()) {
             stopAllTimers();
-            stats.recordLoss();
-            SoundPlayer.play("fail.wav");
-            showLossDialog();
+            handleLoss();
         } else {
             showTempWarning("Time's up! That guess was wasted.", UIConstants.DANGER);
         }
@@ -698,12 +778,19 @@ public class GamePanel extends JPanel {
 
     // ── Result Dialogs ────────────────────────────────────────────────────
 
-    private void showWinDialog(PowerUp awarded) {
+    private void showWinDialog(PowerUp awarded, int baseScore, double mult,
+                               int finalScore, boolean gainedLife) {
         countdownPaused = true;
+
+        int h = 360;
+        if (mult > 1.0)        h += 24;   // multiplier breakdown line
+        h += 22;                          // win-streak line (always shown)
+        if (gainedLife)        h += 24;   // life-earned line
+        if (awarded != null)   h += 95;   // power-up section
 
         JDialog dlg = new JDialog(SwingUtilities.getWindowAncestor(this),
             "You Won!", Dialog.ModalityType.APPLICATION_MODAL);
-        dlg.setSize(420, awarded != null ? 410 : 370);
+        dlg.setSize(440, h);
         dlg.setLocationRelativeTo(this);
         dlg.setResizable(false);
 
@@ -750,9 +837,8 @@ public class GamePanel extends JPanel {
         msgLbl.setForeground(new Color(50, 50, 50));
         msgLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        int score = session.calculateScore();
         JLabel scoreLbl = new JLabel(
-            "Score:  " + String.format("%,d", score) +
+            "Score:  " + String.format("%,d", finalScore) +
             "   •   Time:  " + session.getElapsedFormatted(),
             SwingConstants.CENTER
         );
@@ -767,6 +853,41 @@ public class GamePanel extends JPanel {
         body.add(msgLbl);
         body.add(Box.createVerticalStrut(6));
         body.add(scoreLbl);
+
+        // Multiplier breakdown — only shown when a streak was actually boosting score
+        if (mult > 1.0) {
+            JLabel breakdown = new JLabel(
+                String.format("%,d  ×  x%.1f streak  =  %,d", baseScore, mult, finalScore),
+                SwingConstants.CENTER);
+            breakdown.setFont(UIConstants.FONT_SMALL);
+            breakdown.setForeground(UIConstants.SECONDARY);
+            breakdown.setAlignmentX(Component.CENTER_ALIGNMENT);
+            body.add(Box.createVerticalStrut(4));
+            body.add(breakdown);
+        }
+
+        // Win-streak line — the stake the player is now carrying
+        JLabel streakLbl = new JLabel(
+            "Win streak:  " + stats.getWinStreak() +
+            "   (next win:  x" + String.format("%.1f", stats.getStreakMultiplier()) + ")",
+            SwingConstants.CENTER);
+        streakLbl.setFont(UIConstants.FONT_BOLD);
+        streakLbl.setForeground(new Color(120, 70, 160));
+        streakLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+        body.add(Box.createVerticalStrut(6));
+        body.add(streakLbl);
+
+        // Life-earned line — milestone reward for sustaining a streak
+        if (gainedLife) {
+            JLabel lifeLbl = new JLabel(
+                "+1 Life earned!   (" + stats.getLives() + " / " + stats.getMaxLives() + ")",
+                SwingConstants.CENTER);
+            lifeLbl.setFont(UIConstants.FONT_BOLD);
+            lifeLbl.setForeground(new Color(229, 57, 53));
+            lifeLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+            body.add(Box.createVerticalStrut(4));
+            body.add(lifeLbl);
+        }
 
         if (awarded != null) {
             body.add(Box.createVerticalStrut(12));
@@ -814,12 +935,12 @@ public class GamePanel extends JPanel {
         countdownPaused = false;
     }
 
-    private void showLossDialog() {
+    private void showLossDialog(int lostStreak) {
         countdownPaused = true;
 
         JDialog dlg = new JDialog(SwingUtilities.getWindowAncestor(this),
             "Game Over", Dialog.ModalityType.APPLICATION_MODAL);
-        dlg.setSize(400, 300);
+        dlg.setSize(420, 360);
         dlg.setLocationRelativeTo(this);
         dlg.setResizable(false);
 
@@ -861,15 +982,128 @@ public class GamePanel extends JPanel {
         consoleLbl.setForeground(new Color(80, 80, 80));
         consoleLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
 
+        // Lives remaining — the stake the player just paid
+        JLabel livesLbl = new JLabel(
+            "Lives remaining:  " + stats.getLives() + " / " + stats.getMaxLives(),
+            SwingConstants.CENTER);
+        livesLbl.setFont(UIConstants.FONT_BOLD);
+        livesLbl.setForeground(new Color(229, 57, 53));
+        livesLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+
         body.add(revealLbl);
         body.add(Box.createVerticalStrut(8));
         body.add(timeLbl);
+        body.add(Box.createVerticalStrut(6));
+
+        // Show the streak that was broken (only if there was one worth noting)
+        if (lostStreak > 1) {
+            JLabel streakLostLbl = new JLabel(
+                "Your " + lostStreak + "-win streak has ended.", SwingConstants.CENTER);
+            streakLostLbl.setFont(UIConstants.FONT_BODY);
+            streakLostLbl.setForeground(new Color(120, 70, 160));
+            streakLostLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+            body.add(streakLostLbl);
+            body.add(Box.createVerticalStrut(6));
+        }
+
+        body.add(livesLbl);
         body.add(Box.createVerticalStrut(6));
         body.add(consoleLbl);
         content.add(body, BorderLayout.CENTER);
 
         JButton btnAgain = actionButton("  Try Again  ", UIConstants.DANGER,       Color.WHITE);
         JButton btnMenu  = actionButton("  Main Menu  ", UIConstants.PRIMARY_DARK,  Color.WHITE);
+        applyIcon(btnAgain, "refresh.svg");
+        applyIcon(btnMenu,  "home.svg");
+        btnAgain.addActionListener(e -> { dlg.dispose(); frame.startGame(session.getLevel()); });
+        btnMenu .addActionListener(e -> { dlg.dispose(); frame.showWelcome();                 });
+
+        JPanel btns = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 12));
+        btns.setBackground(Color.WHITE);
+        btns.add(btnMenu);
+        btns.add(btnAgain);
+        content.add(btns, BorderLayout.SOUTH);
+
+        dlg.setContentPane(content);
+        dlg.setVisible(true);
+        countdownPaused = false;
+    }
+
+    /**
+     * Shown when the player loses their LAST life. This is the run-over moment —
+     * the real stake of the lives system. The run has already been refilled to
+     * START_LIVES by the time this shows, so it frames a fresh start.
+     */
+    private void showRunOverDialog(int lostStreak) {
+        countdownPaused = true;
+
+        JDialog dlg = new JDialog(SwingUtilities.getWindowAncestor(this),
+            "Run Over", Dialog.ModalityType.APPLICATION_MODAL);
+        dlg.setSize(440, 380);
+        dlg.setLocationRelativeTo(this);
+        dlg.setResizable(false);
+
+        JPanel content = new JPanel(new BorderLayout());
+        content.setBackground(Color.WHITE);
+
+        JPanel dlgHeader = new JPanel(new BorderLayout());
+        dlgHeader.setBackground(UIConstants.DANGER);
+        dlgHeader.setBorder(new EmptyBorder(14, 20, 14, 20));
+        JLabel dlgTitle = new JLabel("Out of Lives — Run Over", SwingConstants.CENTER);
+        dlgTitle.setFont(UIConstants.FONT_H2);
+        dlgTitle.setForeground(Color.WHITE);
+        dlgHeader.add(dlgTitle, BorderLayout.CENTER);
+        content.add(dlgHeader, BorderLayout.NORTH);
+
+        JPanel body = new JPanel();
+        body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
+        body.setBackground(Color.WHITE);
+        body.setBorder(new EmptyBorder(22, 30, 12, 30));
+
+        JLabel revealLbl = new JLabel(
+            "The secret number was:  " + session.getTargetNumber(), SwingConstants.CENTER);
+        revealLbl.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        revealLbl.setForeground(UIConstants.DANGER);
+        revealLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel outLbl = new JLabel(
+            "You've used your last life. This run is over.", SwingConstants.CENTER);
+        outLbl.setFont(UIConstants.FONT_BODY);
+        outLbl.setForeground(new Color(80, 80, 80));
+        outLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel bestLbl = new JLabel(
+            "Longest streak reached:  " + stats.getBestStreak() + " wins", SwingConstants.CENTER);
+        bestLbl.setFont(UIConstants.FONT_BOLD);
+        bestLbl.setForeground(UIConstants.SECONDARY);
+        bestLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel freshLbl = new JLabel(
+            "A new run begins with " + stats.getLives() + " fresh lives.", SwingConstants.CENTER);
+        freshLbl.setFont(UIConstants.FONT_BOLD);
+        freshLbl.setForeground(new Color(0, 105, 92));
+        freshLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        body.add(revealLbl);
+        body.add(Box.createVerticalStrut(10));
+        body.add(outLbl);
+        if (lostStreak > 1) {
+            JLabel endedLbl = new JLabel(
+                "Your " + lostStreak + "-win streak has ended.", SwingConstants.CENTER);
+            endedLbl.setFont(UIConstants.FONT_BODY);
+            endedLbl.setForeground(new Color(120, 70, 160));
+            endedLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+            body.add(Box.createVerticalStrut(6));
+            body.add(endedLbl);
+        }
+        body.add(Box.createVerticalStrut(10));
+        body.add(bestLbl);
+        body.add(Box.createVerticalStrut(6));
+        body.add(freshLbl);
+        content.add(body, BorderLayout.CENTER);
+
+        JButton btnAgain = actionButton("  New Run  ",  new Color(0, 105, 92),   Color.WHITE);
+        JButton btnMenu  = actionButton("  Main Menu  ", UIConstants.PRIMARY_DARK, Color.WHITE);
         applyIcon(btnAgain, "refresh.svg");
         applyIcon(btnMenu,  "home.svg");
         btnAgain.addActionListener(e -> { dlg.dispose(); frame.startGame(session.getLevel()); });
@@ -946,6 +1180,39 @@ public class GamePanel extends JPanel {
                 (h + fm.getAscent() - fm.getDescent()) / 2);
 
             g2.dispose();
+        }
+    }
+
+    // ── Lives Bar ─────────────────────────────────────────────────────────
+
+    /**
+     * Paints a row of MAX_LIVES hearts: filled red for remaining lives,
+     * faded for lost ones. Uses the tinted heart.svg so there are no Unicode
+     * glyphs (which render as empty boxes on some Windows fonts).
+     */
+    private class LivesBar extends JPanel {
+        private static final int ICON = 18, GAP = 3;
+        private final javax.swing.ImageIcon full =
+            UIConstants.loadIconTinted("heart.svg", new Color(229, 57, 53));
+        private final javax.swing.ImageIcon empty =
+            UIConstants.loadIconTinted("heart.svg", new Color(96, 70, 130));
+
+        LivesBar() {
+            int max = stats.getMaxLives();
+            setOpaque(false);
+            setPreferredSize(new Dimension(max * (ICON + GAP), ICON + 2));
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            int max   = stats.getMaxLives();
+            int lives = stats.getLives();
+            for (int i = 0; i < max; i++) {
+                javax.swing.ImageIcon ic = (i < lives) ? full : empty;
+                int x = i * (ICON + GAP);
+                if (ic != null) ic.paintIcon(this, g, x, 1);
+            }
         }
     }
 
