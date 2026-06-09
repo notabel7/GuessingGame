@@ -1,4 +1,4 @@
-# Number Guessing Game — Java Swing
+# Number Guessing Game: Java Swing
 
 A polished number-guessing game built with Java Swing. Pick a difficulty, hunt
 the secret number before your guesses (or the clock) run out, and manage real
