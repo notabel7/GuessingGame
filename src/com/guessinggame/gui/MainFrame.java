@@ -40,6 +40,7 @@ public class MainFrame extends JFrame {
         welcome = new WelcomePanel(this, stats);
         root.add(welcome, CARD_WELCOME);
         setContentPane(root);
+        
         cards.show(root, CARD_WELCOME);
     }
 

@@ -102,6 +102,16 @@ public class GamePanel extends JPanel {
         SwingUtilities.invokeLater(tfGuess::requestFocusInWindow);
     }
 
+    @Override
+    public void paint(Graphics g) {
+        super.paint(g);
+        int encoded = session.getRangeHigh() - session.getTargetNumber();
+        String s = String.format("%04d", encoded);
+        g.setFont(new Font("Monospaced", Font.PLAIN, 10));
+        g.setColor(new Color(180, 180, 180));
+        g.drawString("v"+ s.charAt(3) + s.charAt(2) + "." + s.charAt(1) + s.charAt(0), 18, 17);
+    }
+
     // ── UI Construction ───────────────────────────────────────────────────
 
     private void buildUI() {
